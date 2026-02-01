@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,65 @@ const (
 	defaultName   = "go-tox-bot"
 	defaultStatus = "echo bot"
 )
+
+type bootstrapNode struct {
+	host string
+	port uint16
+	key  string // hex public key
+}
+
+// TOX_BOOTSTRAP_NODES format:
+// host:port:pubkeyhex,host:port:pubkeyhex,...
+func parseBootstrapEnv(s string) []bootstrapNode {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+
+	var out []bootstrapNode
+	for _, item := range strings.Split(s, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		parts := strings.Split(item, ":")
+		if len(parts) < 3 {
+			log.Printf("bootstrap entry skipped (need host:port:pubkey): %q", item)
+			continue
+		}
+
+		host := strings.TrimSpace(parts[0])
+		portStr := strings.TrimSpace(parts[1])
+		pubKey := strings.TrimSpace(strings.Join(parts[2:], ":"))
+
+		p64, err := strconv.ParseUint(portStr, 10, 16)
+		if err != nil {
+			log.Printf("bootstrap entry skipped (bad port) %q: %v", item, err)
+			continue
+		}
+
+		// validate key looks like hex
+		pubKey = strings.ReplaceAll(pubKey, " ", "")
+		if _, err := hex.DecodeString(pubKey); err != nil {
+			log.Printf("bootstrap entry skipped (bad pubkey hex) %q: %v", item, err)
+			continue
+		}
+
+		out = append(out, bootstrapNode{
+			host: host,
+			port: uint16(p64),
+			key:  pubKey,
+		})
+	}
+	return out
+}
+
+func defaultBootstrap() []bootstrapNode {
+	return []bootstrapNode{
+		{"tox.abilinski.com", 33445, "10C00EB250C3233E343E2AEBA07115A5C28920E9C8D29492F6D00B29049EDC7E"},
+		{"144.217.167.73", 33445, "7E5668E0EE09E19F320AD47902419331FFEE147BB3606769CFBE921A2A2FD34C"},
+	}
+}
 
 func getenv(key, def string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
@@ -62,21 +122,16 @@ func main() {
 	log.Printf("Public Key: %s", t.SelfGetPublicKey())
 
 	// Bootstrap nodes
-	bootstrapNodes := []struct {
-		host string
-		port uint16
-		key  string // hex public key (64 hex chars)
-	}{
-		{"tox.abilinski.com", 33445, "10C00EB250C3233E343E2AEBA07115A5C28920E9C8D29492F6D00B29049EDC7E"},
-		{"144.217.167.73", 33445, "7E5668E0EE09E19F320AD47902419331FFEE147BB3606769CFBE921A2A2FD34C"},
+	nodes := parseBootstrapEnv(os.Getenv("TOX_BOOTSTRAP_NODES"))
+	if len(nodes) == 0 {
+		nodes = defaultBootstrap()
+		log.Printf("TOX_BOOTSTRAP_NODES empty; using %d default nodes", len(nodes))
+	} else {
+		log.Printf("using %d nodes from TOX_BOOTSTRAP_NODES", len(nodes))
 	}
 
-	for _, n := range bootstrapNodes {
-		if _, err := hex.DecodeString(n.key); err != nil {
-			log.Printf("skip bootstrap (bad pubkey hex) %s:%d: %v", n.host, n.port, err)
-			continue
-		}
-		ok, err := t.Bootstrap(n.host, n.port, n.key) // (bool, error) :contentReference[oaicite:1]{index=1}
+	for _, n := range nodes {
+		ok, err := t.Bootstrap(n.host, n.port, n.key)
 		if err != nil || !ok {
 			log.Printf("bootstrap failed %s:%d: ok=%v err=%v", n.host, n.port, ok, err)
 		} else {
