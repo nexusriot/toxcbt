@@ -1,0 +1,12 @@
+services:
+  toxcbt:
+    build: .
+    container_name: toxcbt
+    restart: unless-stopped
+    environment:
+      TOX_NAME: "go-tox-bot"
+      TOX_STATUS: "ololo"
+      TOX_DATA_DIR: "/data"
+      TOX_SAVEDATA: "/data/bot.tox"
+    volumes:
+      - ./data:/data
