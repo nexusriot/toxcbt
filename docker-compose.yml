@@ -3,14 +3,28 @@ services:
     build: .
     container_name: toxcbt
     restart: unless-stopped
+    # The image runs as uid 1000; ./data has to be writable by it, otherwise
+    # the bot refuses to start rather than lose its identity later.
+    user: "1000:1000"
+    ports:
+      - "127.0.0.1:8080:8080"
     environment:
       TOX_NAME: "go-tox-bot"
       TOX_STATUS: "ololo"
       TOX_DATA_DIR: "/data"
       TOX_SAVEDATA: "/data/bot.tox"
-      TOX_BOOTSTRAP_NODES: "tox.abilinski.com:33445:10C00EB250C3233E343E2AEBA07115A5C28920E9C8D29492F6D00B29049EDC7E,144.217.167.73:33445:7E5668E0EE09E19F320AD47902419331FFEE147BB3606769CFBE921A2A2FD34C"
+      # host:udpPort[/tcpPort]:pubkey — the TCP relay port defaults to the UDP
+      # one, and matters whenever UDP is unavailable (any proxied deployment).
+      TOX_BOOTSTRAP_NODES: "tox.abilinski.com:33445:10C00EB250C3233E343E2AEBA07115A5C28920E9C8D29492F6D00B29049EDC7E,144.217.167.73:33445:7E5668E0EE09E19F320AD47902419331FFEE147BB3606769CFBE921A2A2FD34C,tox1.mf-net.eu:33445/3389:B3E5FA80DC8EBD1149AD2AB35ED8B85BD546DEDE261CA593234C619249419506"
+      TOX_HEALTH_ADDR: ":8080"
       # Comma-separated admin public keys (hex) for privileged commands:
       # TOX_ADMINS: "ABCD...,1234..."
+      # Who may become a friend: open (default) | secret | allowlist | closed
+      # TOX_FRIEND_POLICY: "secret"
+      # TOX_FRIEND_SECRET: "let me in"
+      # TOX_MAX_FRIENDS: "500"
+      # Encrypt the profile at rest (same format as the desktop clients):
+      # TOX_SAVEDATA_PASSPHRASE_FILE: "/run/secrets/tox_passphrase"
       # Optional SOCKS5 proxy (e.g. Tor): host:port (auth not supported):
       # SOCKS5_PROXY: "127.0.0.1:9050"
     volumes:

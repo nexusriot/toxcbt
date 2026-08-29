@@ -38,16 +38,20 @@ type fakeTox struct {
 	connStatus map[uint32]int
 	savedata   []byte
 
+	nospam    uint32
 	sent      []sentMessage
 	sendErr   error
 	deleted   []uint32
 	deleteOK  bool
 	deleteErr error
+	added     []string
+	addErr    error
 }
 
 type sentMessage struct {
 	friend uint32
 	text   string
+	id     uint32 // the receipt id toxcore would report back
 }
 
 func newFakeTox() *fakeTox {
@@ -97,8 +101,25 @@ func (f *fakeTox) FriendSendMessage(fn uint32, msg string) (uint32, error) {
 	if f.sendErr != nil {
 		return 0, f.sendErr
 	}
-	f.sent = append(f.sent, sentMessage{friend: fn, text: msg})
-	return uint32(len(f.sent)), nil
+	id := uint32(len(f.sent) + 1)
+	f.sent = append(f.sent, sentMessage{friend: fn, text: msg, id: id})
+	return id, nil
+}
+
+func (f *fakeTox) SelfGetNospam() uint32 { return f.nospam }
+
+func (f *fakeTox) SelfSetNospam(nospam uint32) { f.nospam = nospam }
+
+func (f *fakeTox) FriendAddNorequest(friendID string) (uint32, error) {
+	if f.addErr != nil {
+		return 0, f.addErr
+	}
+	fn := uint32(len(f.friends))
+	f.friends = append(f.friends, fn)
+	f.pubKeys[fn] = strings.ToUpper(friendID)
+	f.connStatus[fn] = tox.CONNECTION_NONE
+	f.added = append(f.added, strings.ToUpper(friendID))
+	return fn, nil
 }
 
 func (f *fakeTox) texts() []string {
@@ -146,35 +167,35 @@ func TestParseBootstrapEnv(t *testing.T) {
 		{
 			name: "single entry",
 			in:   "tox.example.com:33445:" + keyA,
-			want: []bootstrapNode{{"tox.example.com", 33445, keyA}},
+			want: []bootstrapNode{{"tox.example.com", 33445, 33445, keyA}},
 		},
 		{
 			name: "two entries with whitespace",
 			in:   " tox.example.com:33445:" + keyA + " , 10.0.0.1:1234:" + keyB + " ",
 			want: []bootstrapNode{
-				{"tox.example.com", 33445, keyA},
-				{"10.0.0.1", 1234, keyB},
+				{"tox.example.com", 33445, 33445, keyA},
+				{"10.0.0.1", 1234, 1234, keyB},
 			},
 		},
 		{
 			name: "lowercase key is normalized",
 			in:   "h:33445:" + strings.ToLower(keyA),
-			want: []bootstrapNode{{"h", 33445, keyA}},
+			want: []bootstrapNode{{"h", 33445, 33445, keyA}},
 		},
 		{
 			name: "bracketed IPv6 literal",
 			in:   "[2001:db8::1]:33445:" + keyA,
-			want: []bootstrapNode{{"2001:db8::1", 33445, keyA}},
+			want: []bootstrapNode{{"2001:db8::1", 33445, 33445, keyA}},
 		},
 		{
 			name: "bare IPv6 literal",
 			in:   "::1:33445:" + keyA,
-			want: []bootstrapNode{{"::1", 33445, keyA}},
+			want: []bootstrapNode{{"::1", 33445, 33445, keyA}},
 		},
 		{
 			name: "trailing comma is ignored",
 			in:   "h:33445:" + keyA + ",",
-			want: []bootstrapNode{{"h", 33445, keyA}},
+			want: []bootstrapNode{{"h", 33445, 33445, keyA}},
 		},
 		{
 			name: "bad port skipped",
@@ -209,7 +230,7 @@ func TestParseBootstrapEnv(t *testing.T) {
 		{
 			name: "one bad entry does not drop the good one",
 			in:   "bad:entry," + "h:33445:" + keyA,
-			want: []bootstrapNode{{"h", 33445, keyA}},
+			want: []bootstrapNode{{"h", 33445, 33445, keyA}},
 		},
 	}
 
@@ -251,7 +272,7 @@ func TestParseBootstrapEnvAcceptsFullToxID(t *testing.T) {
 		t.Fatalf("test fixture is %d chars, want %d", len(toxID), 2*tox.ADDRESS_SIZE)
 	}
 	got := parseBootstrapEnv("h:33445:" + toxID)
-	want := []bootstrapNode{{"h", 33445, keyA}}
+	want := []bootstrapNode{{"h", 33445, 33445, keyA}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -712,7 +733,7 @@ func TestSayDeliversToTheRequestedFriend(t *testing.T) {
 	if reply != "sent" {
 		t.Fatalf("/say replied %q, want \"sent\"", reply)
 	}
-	want := []sentMessage{{friend: 7, text: "hello world"}}
+	want := []sentMessage{{friend: 7, text: "hello world", id: 1}}
 	if !reflect.DeepEqual(ft.sent, want) {
 		t.Errorf("sent %+v, want %+v", ft.sent, want)
 	}
