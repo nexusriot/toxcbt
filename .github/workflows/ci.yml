@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The binding is CGO over libtoxcore, so the tests need the native
+      # libraries. Building through the Dockerfile's test stage is the only
+      # way to get them without depending on a distro package that may not
+      # exist on the runner.
+      - name: Vet and test
+        run: docker build --target test --progress plain .
+
+      - name: Build the runtime image
+        run: docker build --target runtime -t toxcbt:ci --build-arg VERSION=${GITHUB_SHA::12} .
+
+      - name: Check the image runs as a non-root user
+        run: |
+          user=$(docker image inspect -f '{{.Config.User}}' toxcbt:ci)
+          test "$user" = "tox" || { echo "image runs as '$user', want 'tox'"; exit 1; }
+
+  gofmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi

@@ -4,3 +4,4 @@ data/
 # build output (`go build ./...` and the documented `go build -o tox-bot`)
 /toxcbt
 /tox-bot
+cmd/toxcbt/toxcbt

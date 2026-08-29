@@ -1,0 +1,7 @@
+# The Tox profile is the bot's private identity: never copy it into a layer.
+data/
+*.tox
+.git/
+.github/
+tox-bot
+toxcbt
